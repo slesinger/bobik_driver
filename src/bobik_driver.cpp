@@ -255,9 +255,9 @@ void BobikDriver::run()
         {
             if (strcmp(zmq_msg_group(&receiveMessage), TOPIC_CMD_VEL) == 0)
             {
+                void *data_buffer = zmq_msg_data(&receiveMessage);
                 char *h = (char *)&receiveMessage;
                 LOG_F(INFO, "CMD_VEL from ros2 topic: %s, data: %02X:%02X:%02X:%02X:%02X:%02X, size: %d\n", zmq_msg_group(&receiveMessage), h[0],h[1],h[2],h[3],h[4],h[5], bytesReceived);
-                void *data_buffer = zmq_msg_data(&receiveMessage);
                 cmd_vel_callback((uint8_t *)data_buffer);
             }
             else
