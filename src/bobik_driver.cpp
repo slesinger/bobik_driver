@@ -26,7 +26,7 @@
 #define MSG_START 0xEE
 
 constexpr int BUFFER_SIZE = 1024;
-constexpr int TTY_BAUDRATE = 115200; //500000 is too much for voltage converter
+constexpr int TTY_BAUDRATE = 19200; //500000 is too much for voltage converter
 constexpr int READ_POLL_MS = 100;
 
 #define XV11_PORT_DEFAULT "/dev/ttyUSB0"           // Lidar Serial device driver name (sym link to real dev)
@@ -273,6 +273,7 @@ void BobikDriver::run()
 
 void sigint_handler(int signum)
 {
+    LOG_F(INFO, "Received SIGnal %d\n", signum);
     stop = true;
 }
 
