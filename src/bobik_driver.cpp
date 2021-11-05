@@ -1,10 +1,14 @@
+#include <future>
 #include <chrono>
 #include <memory>
+#include <vector>
 
+#include "bobik_driver.hpp"
 #include "rclcpp/rclcpp.hpp"
-#include "std_msgs/msg/string.hpp"
+#include "std_msgs/msg/int16_multi_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 using std::placeholders::_1;
+#include "protocol_types.h"
 
 // C library headers
 #include <stdio.h>
@@ -15,238 +19,160 @@ using std::placeholders::_1;
 #include <errno.h>   // Error integer and strerror() function
 #include <termios.h> // Contains POSIX terminal control definitions
 #include <unistd.h>  // write(), read(), close()
-
 #include <iostream>
-#include "protocol_types.h"
+#include "uart_transporter.hpp"
 
 #define LOOP_START1 0xEA
 #define LOOP_START2 0xAA
 #define LOOP_END 0xAE
 #define MSG_START 0xEE
 
+constexpr int BUFFER_SIZE = 1024;
+
 using namespace std::chrono_literals;
-// using namespace std;
 
 int serial_port;
 struct termios tty;
 
-// #define STATE_PAYLOAD_READ 0
-// #define MSGTYPE_UNDEFINED 0
-
-class BobikDriver : public rclcpp::Node
-{
-public:
-  BobikDriver()
-      : Node("bobik_driver"), count_(0)
-  {
-    timer_ = this->create_wall_timer(500ms, std::bind(&BobikDriver::timer_callback, this));
-    publisher_ = this->create_publisher<std_msgs::msg::String>("bobik1", 10);
-    sub_cmd_vel = this->create_subscription<geometry_msgs::msg::Twist>(
-        "/cmd_vel", 10, std::bind(&BobikDriver::cmd_vel_callback, this, _1));
-  }
-
-private:
-  unsigned char state = 0;
-  int payload_countdown = 0; //how many bytes to read to complete payload
-  unsigned char payload_buf[32];
-  unsigned long loop_ts = 0;
-
-  unsigned long read_ulong(unsigned char *payload)
-  {
-    unsigned long v = *payload;
-    v <<= 8;
-    v += *(payload + 1);
-    v <<= 8;
-    v += *(payload + 2);
-    v <<= 8;
-    v += *(payload + 3);
-    return v;
-  }
-
-  long read_long(unsigned char *payload)
-  {
-    long v = *payload;
-    v <<= 8;
-    v += *(payload + 1);
-    v <<= 8;
-    v += *(payload + 2);
-    v <<= 8;
-    v += *(payload + 3);
-    return v;
-  }
-
-  void process_message(unsigned char msg_type, unsigned char *payload)
-  {
-    switch (msg_type)
-    { // Message type
-    case LOADCELL_UPPER_ARM_LIFT_JOINT:
+    BobikDriver::BobikDriver() : Node("bobik_driver")
     {
-      long load = read_long(payload);
-      payload += 4;
-      RCLCPP_INFO(this->get_logger(), "loadcell is: '%d'", load);
-      break;
-    }
-    case LOOP_TIMESTAMP:
-    {
-      loop_ts = read_ulong(payload);
-      payload += 4;
-      RCLCPP_INFO(this->get_logger(), "timestamp is: '%d'", loop_ts);
-      break;
-    }
-    default:
-      RCLCPP_ERROR(this->get_logger(), "Unknown process message type: '%x'", msg_type);
-    }
-  }
+        future_ = exit_signal_.get_future();
+        timer_ = this->create_wall_timer(500ms, std::bind(&BobikDriver::timer_callback, this));
+        publisher_raw_caster_rotation = this->create_publisher<std_msgs::msg::Int16MultiArray>("driver/raw/caster", 10);
+        sub_cmd_vel = this->create_subscription<geometry_msgs::msg::Twist>(
+            "/cmd_vel", 10, std::bind(&BobikDriver::cmd_vel_callback, this, _1));
 
-  int lookup_payload_length(unsigned char msg_type)
-  {
-    switch (msg_type) // Message type
-    {
-    case LOADCELL_UPPER_ARM_LIFT_JOINT:
-      return 4;
-      break;
-    case LOOP_TIMESTAMP:
-      return 4;
-      break;
-    }
-    RCLCPP_ERROR(this->get_logger(), "Unknown message type: '%x'", msg_type);
-    return 0;
-  }
-
-  void timer_callback()
-  {
-    unsigned char read_buf[256];
-    int n = read(serial_port, &read_buf, sizeof(read_buf));
-    RCLCPP_INFO(this->get_logger(), "New spin: '%d'", n);
-    if (n == 0)
-      return;
-
-    // Expected to read payload?
-    for (unsigned char *p = read_buf; p <= read_buf + n; ++p)
-    {
-      // RCLCPP_INFO(this->get_logger(), "Data: '%x', state: %x", *p, state);
-
-      if (payload_countdown > 0)
-      {
-        payload_countdown--;
-        payload_buf[payload_countdown] = *p;
-        if (payload_countdown == 0)
+        device = "/dev/ttyUSB0";
+        baudrate = 500000;
+        read_poll_ms = 100;
+        ring_buffer_size = 1024;
+        transporter_ = std::make_unique<UARTTransporter>(device, baudrate, read_poll_ms, ring_buffer_size);
+        if (transporter_->init() < 0)
         {
-          process_message(state, payload_buf);
-          state = 0;
+            throw std::runtime_error("Failed to initialize transport");
         }
-        continue;
-      }
 
-      // Expected message type?
-      if (state == MSG_START)
-      {
-        payload_countdown = lookup_payload_length(*p);
-        state = *p; //message_type
-        continue;
-      }
-
-      if (state == LOOP_END)
-      {
-        RCLCPP_INFO(this->get_logger(), "Loop end with CRC8: '%x'", *p);
-        payload_countdown = 0;
-        state = 0;
-        continue;
-      }
-
-      switch (*p)
-      {
-      case LOOP_START1:
-        state = LOOP_START;
-        break;
-
-      case LOOP_END:
-        state = LOOP_END;
-        break;
-
-      case MSG_START:
-        state = MSG_START;
-        break;
-
-      default: // read value
-        RCLCPP_WARN(this->get_logger(), "Unknown char or position from serial: '%x'", *p);
-      }
+        read_thread_ = std::thread(&BobikDriver::read_thread_func, this, future_);
+        RCLCPP_INFO(this->get_logger(), "Bobik driver initialized");
     }
 
-    // auto message = std_msgs::msg::String();
-    // message.data = "Hello, world! " + std::to_string(count_++) + " - " + std::to_string(n);
-    // RCLCPP_INFO(this->get_logger(), "Publishing: '%s'", message.data.c_str());
-    // RCLCPP_INFO(this->get_logger(), "Received from TTY: '%x %x %x %x %x %x %x %x'", read_buf[0], read_buf[1], read_buf[2], read_buf[3], read_buf[4], read_buf[5], read_buf[6], read_buf[7]);
-    // publisher_->publish(message);
-  }
+    BobikDriver::~BobikDriver()
+    {
+        transporter_->close();
+    }
 
-  void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg) const
-  {
-    geometry_msgs::msg::Vector3 linear = msg->linear;
-    // geometry_msgs::msg::Vector3 angular = msg->angular;
-    //angular
-    RCLCPP_INFO(this->get_logger(), "X: '%f'", linear.x);
-  }
+    void BobikDriver::timer_callback()
+    {
+        uint8_t vels[6] = {1, 2, 3, 4, 5, 6};
+        int written = transporter_->write(DRIVE_CMD, vels, 6);
+        RCLCPP_INFO(this->get_logger(), "Written %d", written);
+    }
 
-  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel;
-  rclcpp::TimerBase::SharedPtr timer_;
-  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr publisher_;
-  size_t count_;
-};
+    void BobikDriver::cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg) const
+    {
+        geometry_msgs::msg::Vector3 linear = msg->linear;
+        // geometry_msgs::msg::Vector3 angular = msg->angular;
+        //angular
+        RCLCPP_INFO(this->get_logger(), "X: '%f'", linear.x);
+    }
 
-void setup()
-{
-  serial_port = open("/dev/ttyUSB0", O_RDWR);
+    void BobikDriver::read_thread_func(const std::shared_future<void> &local_future)
+    {
+        std::future_status status;
 
-  if (serial_port < 0)
-  {
-    printf("Error %i from open: %s. Is Arduino connected?\n", errno, strerror(errno));
-    exit(1);
-  }
+        // We use a unique_ptr here both to make this a heap allocation and to quiet
+        // non-owning pointer warnings from clang-tidy
+        std::unique_ptr<uint8_t[]> data_buffer(new uint8_t[BUFFER_SIZE]);
+        ssize_t length = 0;
 
-  if (tcgetattr(serial_port, &tty) != 0)
-  {
-    printf("Error %i from tcgetattr: %s\n", errno, strerror(errno));
-    exit(2);
-  }
+        do
+        {
+            // Process serial -> ROS 2 data
+            if ((length = transporter_->read(data_buffer.get())) >= 0)
+            {
+                char* bufo = (char*)(data_buffer.get());
+                char bufs[1000];
+                char* bufc = bufs;
+                for (int i = 0; i < length; i++)
+                {
+                    sprintf(bufc, "%02x:", (uint8_t)bufo[i]);
+                    bufc += 3;
+                }
+                *bufc = 0;
+                // RCLCPP_INFO(this->get_logger(), "Loop ------- %d| %s", length, bufs);
+                dispatch(data_buffer.get(), length);
+            }
+            status = local_future.wait_for(std::chrono::seconds(0));
+        } while (status == std::future_status::timeout);
+    }
 
-  //https://blog.mbedded.ninja/programming/operating-systems/linux/linux-serial-ports-using-c-cpp/
-  tty.c_cflag &= ~PARENB;        // Clear parity bit
-  tty.c_cflag &= ~CSTOPB;        // Clear stop field, only one stop bit used in communication
-  tty.c_cflag |= CS8;            // 8 bits per byte
-  tty.c_cflag &= ~CRTSCTS;       // Disable RTS/CTS hardware flow control
-  tty.c_cflag |= CREAD | CLOCAL; // Turn on READ & ignore ctrl lines
-  // tty.c_lflag |= ICANON;         //enable cannonical mode to receive loop message upon \n
-  tty.c_lflag &= ~ICANON; //enable cannonical mode to receive loop message upon \n
-  tty.c_lflag &= ~ECHO;   // Disable echo
-  tty.c_lflag &= ~ISIG;   // Disable interpretation of INTR, QUIT and SUSP
-  tty.c_iflag &= ~(IGNBRK | BRKINT |
-                   PARMRK | ISTRIP |
-                   INLCR | IGNCR | ICRNL); // Disable any special handling of received bytes
-  tty.c_iflag &= ~(IXON | IXOFF | IXANY);  // Turn off s/w flow ctrl
-  tty.c_oflag &= ~OPOST;                   // Prevent special interpretation of output bytes (e.g. newline chars)
-  tty.c_oflag &= ~ONLCR;                   // Prevent conversion of newline to carriage return/line feed
-  tty.c_cc[VTIME] = 0;                     // Wait for up to 1s (10 deciseconds), returning as soon as any data is received.
-  tty.c_cc[VMIN] = 0;
-  cfsetispeed(&tty, B115200); //B460800
-  // Save tty settings, also checking for error
-  if (tcsetattr(serial_port, TCSANOW, &tty) != 0)
-  {
-    printf("Error %i from tcsetattr: %s\n", errno, strerror(errno));
-  }
-}
+    void BobikDriver::dispatch(uint8_t *data_buffer, ssize_t length)
+    {
+        uint8_t *p = data_buffer;
+        do
+        {
+            if (*p != MSG_START)
+            {
+                RCLCPP_ERROR(this->get_logger(), "Expected MSG_START but got something else %x", *p);
+            }
+            p++;
 
-void unsetup()
-{
-  close(serial_port);
-}
+            uint8_t msg_type = *p;
+            p++;
+            int msg_len = callback(msg_type, p);
+            p += msg_len;
+        } while (p < (data_buffer + length));
+    }
+
+    int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
+    {
+        if (msg_type == LOOP_TIMESTAMP)
+        {
+            // MsgTimestamp_t *msg = (struct MsgTimestamp_t *)data_buffer;
+            // RCLCPP_INFO(this->get_logger(), "Time %d", msg->timestamp);
+            return sizeof(MsgTimestamp_t);
+        }
+        if (msg_type == LOOP_END_MSG)
+        {
+            // MsgCRC_t *msg = (struct MsgCRC_t *)data_buffer;
+            // RCLCPP_INFO(this->get_logger(), "CRC %x", msg->crc);
+            return sizeof(MsgCRC_t);
+        }
+        if (msg_type == LOG4)
+        {
+            MsgLog4_t *msg = (struct MsgLog4_t *)data_buffer;
+            RCLCPP_INFO(this->get_logger(), "LOG %x %x %x %x", msg->log1, msg->log2, msg->log3, msg->log4);
+            return sizeof(MsgLog4_t);
+        }
+        if (msg_type == LOADCELL_UPPER_ARM_LIFT_JOINT)
+        {
+            MsgLoadCell_t *msg = (struct MsgLoadCell_t *)data_buffer;
+            RCLCPP_INFO(this->get_logger(), "Load %d", msg->value);
+            return sizeof(MsgLoadCell_t);
+        }
+        if (msg_type == CASTER_JOINT_STATES)
+        {
+            MsgCasterJointStates_t *msg = (struct MsgCasterJointStates_t *)data_buffer;
+            std::vector<int16_t> data = { msg->fl_caster_rotation_joint, msg->fr_caster_rotation_joint, msg->r_caster_rotation_joint };
+            auto message = std_msgs::msg::Int16MultiArray();
+            message.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
+            message.layout.dim[0].label = "rot";
+            message.layout.dim[0].size = data.size();
+            message.layout.dim[0].stride = 1;
+            message.layout.data_offset = 0;
+            message.data = data;
+            publisher_raw_caster_rotation->publish(message);
+            // RCLCPP_INFO(this->get_logger(), "Caster rotation %d : %d : %d", msg->fl_caster_rotation_joint, msg->fr_caster_rotation_joint, msg->r_caster_rotation_joint);
+            return sizeof(MsgCasterJointStates_t);
+        }
+        RCLCPP_ERROR(this->get_logger(), "Unknown message type %x", msg_type);
+        return 0;
+    }
 
 int main(int argc, char *argv[])
 {
-  rclcpp::init(argc, argv);
-  setup();
-  rclcpp::spin(std::make_shared<BobikDriver>());
-  unsetup();
-  rclcpp::shutdown();
-  return 0;
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<BobikDriver>());
+    rclcpp::shutdown();
+    return 0;
 }
