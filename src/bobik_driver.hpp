@@ -38,7 +38,7 @@ private:
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel;
     rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr publisher_raw_caster_rotation;
+    rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr pub_raw_caster_rotation;
     size_t count_;
 };
 

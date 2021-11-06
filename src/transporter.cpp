@@ -97,6 +97,7 @@ ssize_t Transporter::read(uint8_t *out_buffer)
 {
     if (nullptr == out_buffer || !fds_OK())
     {
+        ::printf("Read -1\n");
         return -1;
     }
 
@@ -110,6 +111,7 @@ ssize_t Transporter::read(uint8_t *out_buffer)
     }
 
     ssize_t len = node_read();
+    // ::printf("Read len %d\n", (int)len);
     if (len < 0)
     {
         if (errno != 0 && errno != EAGAIN && errno != ETIMEDOUT)
@@ -134,6 +136,7 @@ ssize_t Transporter::read(uint8_t *out_buffer)
         }
     }
 
+    ::printf("Read no data in ring end\n");
     return -ENODATA;
 }
 
@@ -145,20 +148,28 @@ ssize_t Transporter::write(uint8_t msg_type, uint8_t *buffer, size_t data_length
         return -1;
     }
 
-    std::lock_guard<std::mutex> lock(write_mutex_);
-
-    uint8_t header[2] = {MSG_6BYTES, msg_type};
-    ssize_t written = node_write(header, 2);
+    ssize_t written = 0;
+    if (data_length == 2) {
+        uint8_t header[2] = {MSG_2BYTES, msg_type};
+        written = node_write(header, 2);
+    }
+    else if (data_length == 6) {
+        uint8_t header[2] = {MSG_6BYTES, msg_type};
+        written = node_write(header, 2);
+    }
+    else {
+        ::printf("Error write to serial. Buffer lengthmust be 2 r 6, given %d\n", (int)data_length);
+    }
     if (written < 0)
     {
+        ::printf("Error write to serial, message header. bytes written %d\n", (int)written);
         return written;
     }
     written = node_write(buffer, data_length);
     if (written < 0)
     {
+        ::printf("Error write data %d\n", (int)written);
         return written;
     }
-    std::lock_guard<std::mutex> unlock(write_mutex_);
-
     return data_length;
 }

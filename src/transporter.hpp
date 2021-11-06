@@ -180,7 +180,7 @@ protected:
     ssize_t find_and_copy_message(uint8_t *out_buffer);
 
 private:
-    std::mutex write_mutex_;
+
 };
 
 #endif
