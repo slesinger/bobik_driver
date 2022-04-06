@@ -1,1 +1,1 @@
-/home/honza/projects/bobik/bobik_arduino/src/protocol_types.h
+/home/honza/projects/bobik/bobik_arduino/lib/protocol/protocol_types.h

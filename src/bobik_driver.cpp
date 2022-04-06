@@ -7,6 +7,8 @@
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/int16_multi_array.hpp"
 #include "geometry_msgs/msg/twist.hpp"
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2/LinearMath/Quaternion.h>
 using std::placeholders::_1;
 #include "protocol_types.h"
 
@@ -41,6 +43,8 @@ BobikDriver::BobikDriver() : Node("bobik_driver")
     future_ = exit_signal_.get_future();
     timer_ = this->create_wall_timer(500ms, std::bind(&BobikDriver::timer_callback, this));
     pub_raw_caster_rotation = this->create_publisher<std_msgs::msg::Int16MultiArray>("driver/raw/caster", 10);
+    pub_raw_caster_drive = this->create_publisher<std_msgs::msg::Int16MultiArray>("driver/raw/wheel", 10);
+    pub_odom = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
     sub_cmd_vel = this->create_subscription<geometry_msgs::msg::Twist>(
         "cmd_vel", 10, std::bind(&BobikDriver::cmd_vel_callback, this, _1));
 
@@ -63,21 +67,30 @@ BobikDriver::~BobikDriver()
 
 void BobikDriver::timer_callback()
 {
-    uint8_t vels[6] = {11, 12, 13, 14, 15, 16};
-    int written = 0;
-    written = transporter_->write(DRIVE_CMD, vels, 6);
-    // printf("time");  //does not work here
-    RCLCPP_INFO(this->get_logger(), "Written to arduino %d", written); //loggin does not work here
+    // uint8_t vels[6] = {11, 12, 13, 14, 15, 16};
+    // int written = 0;
+    // written = transporter_->write(DRIVE_CMD, vels, 6);
+    // RCLCPP_INFO(this->get_logger(), "Written to arduino %d", written);
 }
 
 void BobikDriver::cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg) const
 {
     geometry_msgs::msg::Vector3 linear = msg->linear;
-    // geometry_msgs::msg::Vector3 angular = msg->angular;
-    //angular
-    printf("vel");
-    rclcpp::shutdown();
-    RCLCPP_INFO(this->get_logger(), "X: '%f'", linear.x);
+    geometry_msgs::msg::Vector3 angular = msg->angular;
+    // RCLCPP_INFO(this->get_logger(), "X: '%f'", linear.x);
+    MsgCmdVel_t msg_cmd_vel;
+    // int16_t rot = 0;
+    // int16_t drive = (int16_t)(linear.x * 80);
+    msg_cmd_vel.linear_x = (int16_t)(linear.x * FLOAT_INT16_PRECISION);
+    msg_cmd_vel.linear_y = (int16_t)(linear.y * FLOAT_INT16_PRECISION);
+    msg_cmd_vel.rotation = (int16_t)(angular.z * FLOAT_INT16_PRECISION);
+    int written = transporter_->write(DRIVE_CMD, (uint8_t*)(&msg_cmd_vel), 6);
+    if (written <= 0)
+    {
+        RCLCPP_ERROR(this->get_logger(), "Failed to write to arduino, %d", written);
+    }
+    // RCLCPP_INFO(this->get_logger(), "msg_cmd_vel written bytes: '%d'", written);
+
 }
 
 void BobikDriver::read_thread_func(const std::shared_future<void> &local_future)
@@ -94,7 +107,7 @@ void BobikDriver::read_thread_func(const std::shared_future<void> &local_future)
         // Process serial -> ROS 2 data
         if ((length = transporter_->read(data_buffer.get())) >= 0)
         {
-            RCLCPP_INFO(this->get_logger(), "Received bytu ----%d ", length);
+            // RCLCPP_INFO(this->get_logger(), "Received bytes ----%d ", length);
             char *bufo = (char *)(data_buffer.get());
             char bufs[1000];
             char *bufc = bufs;
@@ -167,6 +180,7 @@ int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
         message.layout.data_offset = 0;
         message.data = data;
         pub_raw_caster_rotation->publish(message);
+        pub_odom->publish(calculate_odom(&data));
         // RCLCPP_INFO(this->get_logger(), "Caster rotation %d : %d : %d", msg->fl_caster_rotation_joint, msg->fr_caster_rotation_joint, msg->r_caster_rotation_joint);
         return sizeof(MsgCasterJointStates_t);
     }
@@ -174,6 +188,82 @@ int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
     return 0;
 }
 
+nav_msgs::msg::Odometry BobikDriver::calculate_odom(std::vector<int16_t> *data)
+{
+    #define LEN_AB 0.457 // distance between twa caster axis
+    #define LEN_AB_HALF LEN_AB / 2.0
+    #define LEN_Cc LEN_AB * 1.732051 / 2.0 // height of same-side triangle, distance between point C and center of line c (AB)
+    #define LEN_SC 2.0 / 3.0 * LEN_Cc  //distance between robot center (S - stred) and rear caster axis C
+    #define LEN_Sc 1.0 / 3.0 * LEN_Cc  //distance between robot center (S - stred) and center of line c (AB)
+    #define POS_A_x LEN_Sc
+    #define POS_A_y -LEN_AB_HALF
+    #define POS_B_x LEN_Sc
+    #define POS_B_y LEN_AB_HALF
+    #define POS_C_x -LEN_SC
+    #define POS_C_y 0.0
+    #define CASTER_UNITS2RAD M_PI / -8192.0
+    #define CASTER_TICKS2METERS (0.123 * M_PI) / (2*120) 
+
+    MsgCasterJointStates_t *caster_data = (struct MsgCasterJointStates_t *)data->data();
+    // Front Left caster new position
+    float Arad = CASTER_UNITS2RAD * caster_data->fl_caster_rotation_joint;
+    float Ameters = CASTER_TICKS2METERS * caster_data->fl_caster_drive_joint;
+    float Ax = POS_A_x + cos(Arad) * Ameters;
+    float Ay = POS_A_y - sin(Arad) * Ameters;
+    // Front Right caster new position
+    float Brad = CASTER_UNITS2RAD * caster_data->fr_caster_rotation_joint;
+    float Bmeters = CASTER_TICKS2METERS * caster_data->fr_caster_drive_joint;
+    float Bx = POS_B_x + cos(Brad) * Bmeters;
+    float By = POS_B_y - sin(Brad) * Bmeters;
+    // Rear caster new position
+    float Crad = CASTER_UNITS2RAD * caster_data->r_caster_rotation_joint;
+    float Cmeters = CASTER_TICKS2METERS * caster_data->r_caster_drive_joint;
+    float Cx = POS_C_x + cos(Crad) * Cmeters;
+    float Cy = POS_C_y - sin(Crad) * Cmeters;
+    // Center position between front left and right
+    float c_center_x = (Ax + Bx) / 2.0;
+    float c_center_y = (Ay + By) / 2.0;
+    // Vector between c center and rear
+    float c_center_to_rear_x = Cx - c_center_x;
+    float c_center_to_rear_y = Cy - c_center_y;
+    // New base center position
+    float base_center_x = c_center_x + c_center_to_rear_x / 3.0;
+    float base_center_y = c_center_y + c_center_to_rear_y / 3.0;
+    // New base vector forward
+    float base_forward_x = -c_center_to_rear_x;
+    float base_forward_y = -c_center_to_rear_y;
+    // Rotation of base in radians
+    float base_rotation = atan2(base_forward_y, base_forward_x); //assumption: base cannot rotate more than 90 degrees with one frame
+
+    odom_pose.position.x += base_center_x;
+    odom_pose.position.y += base_center_y;
+    odom_pose.position.z = 0;
+    tf2::Quaternion q;
+    q.setRPY(0, 0, base_rotation);
+    odom_pose.orientation = tf2::toMsg(q);
+
+    nav_msgs::msg::Odometry message;
+    message.header.frame_id = "odom";
+    message.child_frame_id = "base_link";
+    message.header.stamp = rclcpp::Clock().now();
+    message.pose.pose = odom_pose;
+    message.twist.twist.linear.x = base_center_x;
+    message.twist.twist.linear.y = base_center_y;
+    message.twist.twist.linear.z = 0;
+    message.twist.twist.angular.x = 0;
+    message.twist.twist.angular.y = 0;
+    message.twist.twist.angular.z = base_rotation;
+    return message;
+}
+
+
+/**
+ * @brief main function
+ * 
+ * @param argc 
+ * @param argv 
+ * @return int 
+ */
 int main(int argc, char *argv[])
 {
     rclcpp::init(argc, argv);

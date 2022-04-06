@@ -136,7 +136,7 @@ ssize_t Transporter::read(uint8_t *out_buffer)
         }
     }
 
-    ::printf("Read no data in ring end\n");
+    // ::printf("Read no data in ring end\n");
     return -ENODATA;
 }
 
@@ -157,8 +157,12 @@ ssize_t Transporter::write(uint8_t msg_type, uint8_t *buffer, size_t data_length
         uint8_t header[2] = {MSG_6BYTES, msg_type};
         written = node_write(header, 2);
     }
+    else if (data_length == 12) {
+        uint8_t header[2] = {MSG_12BYTES, msg_type};
+        written = node_write(header, 2);
+    }
     else {
-        ::printf("Error write to serial. Buffer lengthmust be 2 r 6, given %d\n", (int)data_length);
+        ::printf("Error write to serial. Buffer lengthmust be 2 or 6 or 12, given %d\n", (int)data_length);
     }
     if (written < 0)
     {
