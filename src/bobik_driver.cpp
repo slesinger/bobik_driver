@@ -42,8 +42,7 @@ BobikDriver::BobikDriver() : Node("bobik_driver")
 {
     future_ = exit_signal_.get_future();
     timer_ = this->create_wall_timer(500ms, std::bind(&BobikDriver::timer_callback, this));
-    pub_raw_caster_rotation = this->create_publisher<std_msgs::msg::Int16MultiArray>("driver/raw/caster", 10);
-    pub_raw_caster_drive = this->create_publisher<std_msgs::msg::Int16MultiArray>("driver/raw/wheel", 10);
+    pub_raw_caster = this->create_publisher<std_msgs::msg::Int16MultiArray>("driver/raw/caster", 10);
     pub_odom = this->create_publisher<nav_msgs::msg::Odometry>("odom", 10);
     sub_cmd_vel = this->create_subscription<geometry_msgs::msg::Twist>(
         "cmd_vel", 10, std::bind(&BobikDriver::cmd_vel_callback, this, _1));
@@ -171,7 +170,14 @@ int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
     if (msg_type == CASTER_JOINT_STATES)
     {
         MsgCasterJointStates_t *msg = (struct MsgCasterJointStates_t *)data_buffer;
-        std::vector<int16_t> data = {msg->fl_caster_rotation_joint, msg->fr_caster_rotation_joint, msg->r_caster_rotation_joint};
+        std::vector<int16_t> data = {
+            msg->fl_caster_rotation_joint,
+            msg->fl_caster_drive_joint,
+            msg->fr_caster_rotation_joint, 
+            msg->fr_caster_drive_joint,
+            msg->r_caster_rotation_joint,
+            msg->r_caster_drive_joint
+        };
         auto message = std_msgs::msg::Int16MultiArray();
         message.layout.dim.push_back(std_msgs::msg::MultiArrayDimension());
         message.layout.dim[0].label = "rot";
@@ -179,7 +185,7 @@ int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
         message.layout.dim[0].stride = 1;
         message.layout.data_offset = 0;
         message.data = data;
-        pub_raw_caster_rotation->publish(message);
+        pub_raw_caster->publish(message);
         pub_odom->publish(calculate_odom(&data));
         // RCLCPP_INFO(this->get_logger(), "Caster rotation %d : %d : %d", msg->fl_caster_rotation_joint, msg->fr_caster_rotation_joint, msg->r_caster_rotation_joint);
         return sizeof(MsgCasterJointStates_t);
