@@ -1,0 +1,17 @@
+[Unit]
+Description="Bobik startup"
+
+[Service]
+User=ubuntu
+Group=ubuntu
+Environment="HOME=ubuntu"
+Environment="ROS_DOMAIN_ID=100"
+Environment="LD_LIBRARY_PATH=/opt/ros/foxy/opt/yaml_cpp_vendor/lib:/opt/ros/foxy/lib/aarch64-linux-gnu:/opt/ros/foxy/lib"
+Environment="PYTHONPATH=/opt/ros/foxy/lib/python3.8/site-packages"
+Environment="AMENT_PREFIX_PATH=/home/ubuntu/ros2_foxy/install/xv_11_driver:/home/ubuntu/ros2_foxy/install/bobik_driver:/opt/ros/foxy"
+
+ExecStart=/opt/ros/foxy/bin/ros2 launch -n bobik_driver bobik_launch.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
