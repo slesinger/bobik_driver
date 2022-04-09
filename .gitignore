@@ -34,3 +34,4 @@ src/protocol_types.h
 *.exe
 *.out
 *.app
+src/protocol_types.h
