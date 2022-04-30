@@ -198,7 +198,7 @@ int BobikDriver::dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffe
     }
     if (msg_type == CASTER_JOINT_STATES)
     {
-        send_to_zmq_topic("caster_raw_joint_states", data_buffer, sizeof(MsgCasterJointStates_t));
+        send_to_zmq_topic(TOPIC_CASTER_RAW, data_buffer, sizeof(MsgCasterJointStates_t));
         return sizeof(MsgCasterJointStates_t);
     }
     LOG_F(ERROR, "Unknown message type %x", msg_type);
@@ -210,8 +210,6 @@ void BobikDriver::run()
 {
     do
     {
-        LOG_F(INFO, "Run");
-
         int bytesReceived;
         zmq_msg_t receiveMessage;
 
