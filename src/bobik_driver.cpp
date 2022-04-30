@@ -3,6 +3,7 @@
 #include <chrono>
 #include <memory>
 #include <vector>
+#include <csignal>
 #include <zmq.hpp>
 
 #include "bobik_driver.hpp"
@@ -29,6 +30,7 @@ constexpr int READ_POLL_MS = 100;
 
 using namespace std::chrono_literals;
 
+bool stop = false;
 int serial_port;
 struct termios tty;
 
@@ -47,11 +49,35 @@ BobikDriver::BobikDriver()
     }
 
     read_thread_ = std::thread(&BobikDriver::read_thread_func, this, future_);
+
+    // Setup 0MQ
+    void *zmq_ctx = zmq_ctx_new();
+    radio = zmq_socket(zmq_ctx, ZMQ_RADIO);
+    dish = zmq_socket(zmq_ctx, ZMQ_DISH);
+    if (zmq_connect(radio, "udp://127.0.0.1:7655") != 0)
+    {
+        LOG_F(ERROR, "zmq_connect: %s", zmq_strerror(errno));
+        return;
+    }
+    if (zmq_bind(dish, "udp://*:7654") != 0)
+    {
+        LOG_F(ERROR, "zmq_bind: %s", zmq_strerror(errno));
+        return;
+    }
+    if (zmq_join(dish, TOPIC_CMD_VEL) != 0)
+    {
+        LOG_F(ERROR, "Could not subscribe to: %s", TOPIC_CMD_VEL);
+        return;
+    }
+
     LOG_F(INFO, "Bobik driver initialized");
 }
 
 BobikDriver::~BobikDriver()
 {
+    LOG_F(INFO, "Bobik driver not yet finished"); // TODO this is not called. See log '[rclcpp]: signal_handler(signal_value=2)'
+    stop = true;
+    read_thread_.join();
     LOG_F(INFO, "Bobik driver finished"); // TODO this is not called. See log '[rclcpp]: signal_handler(signal_value=2)'
     transporter_->close();
 }
@@ -118,13 +144,14 @@ void BobikDriver::read_thread_func(const std::shared_future<void> &local_future)
             }
             *bufc = 0;
             // LOG_F(INFO, "Loop ------- %d| %s", length, bufs);
-            dispatch(data_buffer.get(), length);
+            dispatch_from_arduino(data_buffer.get(), length);
         }
         status = local_future.wait_for(std::chrono::seconds(0));
-    } while (status == std::future_status::timeout);
+    } while (!stop && (status == std::future_status::timeout));
 }
 
-void BobikDriver::dispatch(uint8_t *data_buffer, ssize_t length)
+// Distribute messages from arduino to the correct handler based on message type
+void BobikDriver::dispatch_from_arduino(uint8_t *data_buffer, ssize_t length)
 {
     uint8_t *p = data_buffer;
     do
@@ -137,23 +164,24 @@ void BobikDriver::dispatch(uint8_t *data_buffer, ssize_t length)
 
         uint8_t msg_type = *p;
         p++;
-        int msg_len = callback(msg_type, p);
+        int msg_len = dispatch_msg_from_arduino(msg_type, p);
         p += msg_len;
     } while (p < (data_buffer + length));
 }
 
-int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
+// Distribute messages from arduino to the correct handler based on message type
+int BobikDriver::dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffer)
 {
     if (msg_type == LOOP_TIMESTAMP)
     {
         MsgTimestamp_t *msg = (struct MsgTimestamp_t *)data_buffer;
-        LOG_F(INFO, "Time %d", msg->timestamp);
+        LOG_F(MAX, "Time %d", msg->timestamp);
         return sizeof(MsgTimestamp_t);
     }
     if (msg_type == LOOP_END_MSG)
     {
         MsgCRC_t *msg = (struct MsgCRC_t *)data_buffer;
-        LOG_F(INFO, "CRC %x", msg->crc);
+        LOG_F(MAX, "CRC %x", msg->crc);
         return sizeof(MsgCRC_t);
     }
     if (msg_type == LOG4)
@@ -177,6 +205,41 @@ int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
     return 0;
 }
 
+// Read data from ZMQ
+void BobikDriver::run()
+{
+    do
+    {
+        LOG_F(INFO, "Run");
+
+        int bytesReceived;
+        zmq_msg_t receiveMessage;
+
+        zmq_msg_init(&receiveMessage);
+        bytesReceived = zmq_msg_recv(&receiveMessage, dish, 0);
+        LOG_F(INFO, "Received bytes: '%d'", bytesReceived);
+        if (bytesReceived == -1)
+        {
+            LOG_F(ERROR, "Failed to receive message from zmq.");
+        }
+        else
+        {
+            LOG_F(INFO, "from ros2 topic: %s, data: %s, size: %d\n", zmq_msg_group(&receiveMessage), (char *)zmq_msg_data(&receiveMessage), bytesReceived);
+            if (strcmp(zmq_msg_group(&receiveMessage), TOPIC_CMD_VEL) == 0)
+            {
+                void *data_buffer = zmq_msg_data(&receiveMessage);
+                cmd_vel_callback((uint8_t *)data_buffer);
+            }
+        }
+
+        zmq_msg_close(&receiveMessage);
+    } while (!stop);
+}
+
+void sigint_handler(int signum)
+{
+    stop = true;
+}
 
 /**
  * @brief main function
@@ -188,6 +251,8 @@ int BobikDriver::callback(uint8_t msg_type, uint8_t *data_buffer)
 int main(int argc, char *argv[])
 {
     loguru::init(argc, argv);
+    // std::signal(SIGINT, sigint_handler); // works but needs to unblock by receiving a message from ros2
     BobikDriver bobik_driver;
+    bobik_driver.run();
     return 0;
 }

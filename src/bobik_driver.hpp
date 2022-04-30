@@ -8,6 +8,7 @@ class BobikDriver
 public:
     BobikDriver();
     ~BobikDriver();
+    void run();
 
 private:
     unsigned char state = 0;
@@ -30,8 +31,8 @@ private:
     void send_to_zmq_topic(const char *topic, uint8_t *data, size_t size) const;
     void cmd_vel_callback(uint8_t *msg_cmd_vel) const;
     void read_thread_func(const std::shared_future<void> &local_future);
-    void dispatch(uint8_t *data_buffer, ssize_t length);
-    int callback(uint8_t msg_type, uint8_t *data_buffer);
+    void dispatch_from_arduino(uint8_t *data_buffer, ssize_t length);
+    int dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffer);
 
     size_t count_;
 };
