@@ -1,13 +1,9 @@
 #ifndef BOBIK_DRIVER_HPP_
 #define BOBIK_DRIVER_HPP_
 
-#include "rclcpp/rclcpp.hpp"
 #include "uart_transporter.hpp"
-#include "std_msgs/msg/int16_multi_array.hpp"
-#include "geometry_msgs/msg/twist.hpp"
-#include "nav_msgs/msg/odometry.hpp"
 
-class BobikDriver : public rclcpp::Node
+class BobikDriver
 {
 public:
     BobikDriver();
@@ -15,7 +11,7 @@ public:
 
 private:
     unsigned char state = 0;
-    int payload_countdown = 0; //how many bytes to read to complete payload
+    int payload_countdown = 0; // how many bytes to read to complete payload
     unsigned char payload_buf[32];
     unsigned long loop_ts = 0;
     std::unique_ptr<Transporter> transporter_;
@@ -31,24 +27,11 @@ private:
     std::promise<void> exit_signal_;
     std::thread read_thread_;
 
-    void timer_callback();
-    void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg) const;
+    void send_to_zmq_topic(const char *topic, uint8_t *data, size_t size) const;
+    void cmd_vel_callback(uint8_t *msg_cmd_vel) const;
     void read_thread_func(const std::shared_future<void> &local_future);
     void dispatch(uint8_t *data_buffer, ssize_t length);
     int callback(uint8_t msg_type, uint8_t *data_buffer);
-
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr sub_cmd_vel;
-    rclcpp::TimerBase::SharedPtr timer_;
-    rclcpp::Publisher<std_msgs::msg::Int16MultiArray>::SharedPtr pub_raw_caster;
-    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pub_odom;
-    geometry_msgs::msg::Pose odom_pose;
-    /**
-     * @brief Calculate odometry from drive joint states.
-     * 
-     * @param MsgCasterJointStates_t data 
-     * @return nav_msgs::msg::Odometry message
-     */
-    nav_msgs::msg::Odometry calculate_odom(std::vector<int16_t> *data);
 
     size_t count_;
 };
