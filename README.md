@@ -1,13 +1,23 @@
 # bobik_driver
 HW Interface for Bobik
 
-This Readme also dewscribes all remaining installation needed for RPI.
+Robik Driver is suposed to be run on Bobik's Jetson TK1. There is no dependency on ROS. All communications with main computer running ROS2 is vua ZeroMQ. See bobik_bridge.
+
+This Readme also dewscribes all remaining installation needed for Jetson.
 
 # Build
+Assuming that git repo is checkout out to ```~/ros2_foxy/src/bobik_driver``` inspite it is not a ros package.
+
+```bash
 ```
-cd ~/ros2_foxy
-colcon build --packages-select bobik_driver
+cd ~/ros2_foxy/src/bobik_driver
+mkdir build
+cd build
+cmake ..
+make
+make install
 ```
+Binary will install to ~/.local/bin
 
 # Run
 ```
