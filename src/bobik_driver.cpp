@@ -4,7 +4,7 @@
 #include <memory>
 #include <vector>
 #include <csignal>
-#include <zmq.hpp>
+#include <zmq.h>
 
 #include "bobik_driver.hpp"
 #include "protocol_types.h"
