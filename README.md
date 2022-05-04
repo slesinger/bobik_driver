@@ -6,38 +6,60 @@ Robik Driver is suposed to be run on Bobik's Jetson TK1. There is no dependency 
 This Readme also dewscribes all remaining installation needed for Jetson.
 
 # Build
-Assuming that git repo is checkout out to ```~/ros2_foxy/src/bobik_driver``` inspite it is not a ros package.
+
+## Prerequisites
+
+> Jetson OS, L4T 21.8
+```bash
+export LC_CTYPE=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+sudo aptitude install git curl htop mc aptitude libtool autoconf
+```
+
+Install gcc-9
+```bash
+sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+sudo apt-get update
+sudo apt-get install gcc-9 g++-9
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 10
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 20
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-4.8 10
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 20
+sudo update-alternatives --install /usr/bin/cc cc /usr/bin/gcc 30
+sudo update-alternatives --set cc /usr/bin/gcc
+sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
+sudo update-alternatives --set c++ /usr/bin/g++
+```
+
+
+> Install libzmq 5.x+
+```bash
+git clone https://github.com/zeromq/libzmq.git
+cd libzmq
+./autogen.sh
+./configure
+make
+sudo make install
+```
+
+Assuming that git repo is checkout out to ```~/bobik_driver``` inspite it is not a ros package.
 
 ```bash
-```
-cd ~/ros2_foxy/src/bobik_driver
+cd ~/bobik_driver
 mkdir build
 cd build
 cmake ..
 make
-make install
+sudo make install
 ```
-Binary will install to ~/.local/bin
+Binary will install to /usr/local/bin
 
 # Run
 ```
-ros2 run bobik_driver bobik_driver
+bobik_driver
 killall bobik_driver
 ```
 
-# ROS2 CLI Tools
-
-eProsima DDS filters topics to individual clients for only those a specific node needs. It is contraproductive for CLI tools like ```ros2 topic list```. CLI tools needs to run as a [SUPER_CLIENT](https://fast-dds.docs.eprosima.com/en/latest/fastdds/ros2/discovery_server/ros2_discovery_server.html#daemon-s-related-commands)
-
-```
-export FASTRTPS_DEFAULT_PROFILES_FILE=/home/honza/ros2_foxy/super_client_configuration_file.xml
-export ROS_DISCOVERY_SERVER="192.168.1.2"
-fastdds discovery -i 0
-ros2 daemon stop
-ros2 daemon start
-
-ros2 run rviz2 rviz2
-```
 
 # Test
 
