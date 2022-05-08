@@ -9,16 +9,43 @@ This Readme also dewscribes all remaining installation needed for Jetson.
 
 ## Prerequisites
 
-> Jetson OS, L4T 21.8
+> Jetson OS, L4T 21.3 + [Grinch Kernel](https://github.com/jetsonhacks/installGrinch)
+
+Add this to ```mcedit ~/.bashrc```:
 ```bash
 export LC_CTYPE=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
-sudo aptitude install git curl htop mc aptitude libtool autoconf
+export LD_LIBRARY_PATH=/usr/local/lib
 ```
 
-Install gcc-9
 ```bash
-sudo add-apt-repository ppa:ubuntu-toolchain-r/test
+sudo add-apt-repository universe
+sudo add-apt-repository multiverse
+sudo apt update
+sudo apt-get install git curl htop mc aptitude libtool autoconf aptitude cmake zlib1g-dev libssl-dev
+update-rc.d -f apport remove
+update-rc.d -f cups remove
+update-rc.d -f cups-browsed remove
+update-rc.d -f saned remove
+service --status-all
+sudo nmcli dev wifi connect <YOUR_SSID_HERE> password '<YOUR_KEY_HERE>'
+sudo nmcli dev
+sudo nmcli connection
+
+```
+
+```sudo mcedit /etc/init/rc-sysinit.conf``` change to ```env DEFAULT_RUNLEVEL=3```
+
+
+```sudo mcedit /etc/sudoers``` add ```ubuntu    ALL=NOPASSWD: ALL```
+
+Get rid of Ubuntu error reports: ```sudo mcedit /etc/default/whoopsie``` change to ```report_crashes=false```. Then ```sudo service whoopsie stop```
+
+
+
+## Install gcc-9
+```bash
+sudo add-apt-repository ppa:ubuntu-toolchain-r/test  #press enter then
 sudo apt-get update
 sudo apt-get install gcc-9 g++-9
 sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 10
@@ -31,9 +58,9 @@ sudo update-alternatives --install /usr/bin/c++ c++ /usr/bin/g++ 30
 sudo update-alternatives --set c++ /usr/bin/g++
 ```
 
-
-> Install libzmq 5.x+
+## Install libzmq 5.x+
 ```bash
+cd
 git clone https://github.com/zeromq/libzmq.git
 cd libzmq
 ./autogen.sh
@@ -42,13 +69,39 @@ make
 sudo make install
 ```
 
-Assuming that git repo is checkout out to ```~/bobik_driver``` inspite it is not a ros package.
-
+## Install bobik_arduino
 ```bash
+cd
+git clone https://github.com/slesinger/bobik_arduino.git
+```
+
+### Install PlatformIO
+```bash
+sudo apt-get install software-properties-common
+sudo add-apt-repository ppa:fkrull/deadsnakes   #press enter
+sudo apt-get update
+mkdir ~/python
+cd ~/python
+wget https://www.python.org/ftp/python/3.6.3/Python-3.6.3.tgz
+tar -xvf Python-3.6.3.tgz
+cd Python-3.6.3
+sudo ./configure --enable-optimizations
+make -j8           #if it gets stuck on tests, kill ongoing subprocess to unblock
+sudo make install
+wget https://bootstrap.pypa.io/pip/3.6/get-pip.py
+sudo python3.6 get-pip.py
+python3 -m pip install platformio
+cd ~/bobik_arduino
+```
+
+## Install bobik_driver
+```bash
+cd
+git clone https://github.com/slesinger/bobik_driver.git
 cd ~/bobik_driver
-mkdir build
-cd build
-cmake ..
+rm src/protocol_types.h
+ln -s /home/ubuntu/bobik_arduino/lib/protocol/protocol_types.h src/protocol_types.h
+mkdir build && cd build && cmake ..
 make
 sudo make install
 ```
@@ -57,13 +110,13 @@ Binary will install to /usr/local/bin
 # Run
 ```
 bobik_driver
-killall bobik_driver
 ```
 
 
 # Test
 
 ## Move
+Run on main computer:
 ```
 ros2 topic pub -r 20 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.1, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}'
 ```
@@ -71,20 +124,13 @@ ros2 topic pub -r 20 /cmd_vel geometry_msgs/msg/Twist '{linear: {x: 0.1, y: 0.0,
 ```
 ros2 run teleop_twist_keyboard teleop_twist_keyboard
 ```
-# Jetson TK1
-https://distrustsimplicity.net/articles/nvidia-jetson-tk1-wifi/
-
-# Raspberry PI Installation
-
-## Instal raspi-config on Ubuntu
-https://raspberrypi.stackexchange.com/questions/111728/how-to-get-raspi-config-on-ubuntu-20-04
 
 ## Startup scripts
 
-Copy ```launch/bobik.service``` to ```/etc/systemd/system```.
+Copy ```startup/bobik.conf``` to ```/etc/init```.
 ```
-sudo systemctl enable bobik
-sudo systemctl start bobik
+sudo initctl reload-configuration
+sudo service bobik start
 ```
 
 ## Install XV11 Lidar Driver
