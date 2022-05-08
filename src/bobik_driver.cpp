@@ -41,8 +41,7 @@ zmq_msg_t zmq_msg;
 BobikDriver::BobikDriver()
 {
     future_ = exit_signal_.get_future();
-    //device = "/dev/ttyUSB0"; // TODO discover
-    device = "/dev/ttyTHS0";
+    device = "/dev/ttyUSB0"; // TODO discover
     transporter_ = std::make_unique<UARTTransporter>(device, TTY_BAUDRATE, READ_POLL_MS, BUFFER_SIZE);
     if (transporter_->init() < 0)
     {
@@ -144,7 +143,7 @@ void BobikDriver::read_thread_func(const std::shared_future<void> &local_future)
                 bufc += 3;
             }
             *bufc = 0;
-            // LOG_F(INFO, "Loop ------- %d| %s", length, bufs);
+            // LOG_F(INFO, "Loop read thread--- %d| %s", length, bufs);
             dispatch_from_arduino(data_buffer.get(), length);
         }
         status = local_future.wait_for(std::chrono::seconds(0));
