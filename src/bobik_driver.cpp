@@ -54,7 +54,7 @@ BobikDriver::BobikDriver()
     void *zmq_ctx = zmq_ctx_new();
     radio = zmq_socket(zmq_ctx, ZMQ_RADIO);
     dish = zmq_socket(zmq_ctx, ZMQ_DISH);
-    if (zmq_connect(radio, "udp://127.0.0.1:7655") != 0)
+    if (zmq_connect(radio, "udp://192.168.1.2:7655") != 0)
     {
         LOG_F(ERROR, "zmq_connect: %s", zmq_strerror(errno));
         return;
@@ -143,7 +143,7 @@ void BobikDriver::read_thread_func(const std::shared_future<void> &local_future)
                 bufc += 3;
             }
             *bufc = 0;
-            // LOG_F(INFO, "Loop ------- %d| %s", length, bufs);
+            // LOG_F(INFO, "Loop read thread--- %d| %s", length, bufs);
             dispatch_from_arduino(data_buffer.get(), length);
         }
         status = local_future.wait_for(std::chrono::seconds(0));
@@ -222,12 +222,18 @@ void BobikDriver::run()
         }
         else
         {
-            LOG_F(INFO, "from ros2 topic: %s, data: %s, size: %d\n", zmq_msg_group(&receiveMessage), (char *)zmq_msg_data(&receiveMessage), bytesReceived);
             if (strcmp(zmq_msg_group(&receiveMessage), TOPIC_CMD_VEL) == 0)
             {
+                char *h = (char *)&receiveMessage;
+                LOG_F(INFO, "CMD_VEL from ros2 topic: %s, data: %02X:%02X:%02X:%02X:%02X:%02X, size: %d\n", zmq_msg_group(&receiveMessage), h[0],h[1],h[2],h[3],h[4],h[5], bytesReceived);
                 void *data_buffer = zmq_msg_data(&receiveMessage);
                 cmd_vel_callback((uint8_t *)data_buffer);
             }
+            else
+            {
+                LOG_F(INFO, "from ros2 topic: %s, data: %s, size: %d\n", zmq_msg_group(&receiveMessage), (char *)zmq_msg_data(&receiveMessage), bytesReceived);
+            }
+
         }
 
         zmq_msg_close(&receiveMessage);
