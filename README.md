@@ -31,8 +31,9 @@ service --status-all
 sudo nmcli dev wifi connect <YOUR_SSID_HERE> password '<YOUR_KEY_HERE>'
 sudo nmcli dev
 sudo nmcli connection
-
 ```
+
+> If wifi connection has slow and unstable ping, try to set ```wifi.powersave = 2``` to disable power management. (```iwconfig wlan0 power off```)
 
 ```sudo mcedit /etc/init/rc-sysinit.conf``` change to ```env DEFAULT_RUNLEVEL=3```
 

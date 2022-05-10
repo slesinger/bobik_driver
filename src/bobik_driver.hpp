@@ -26,11 +26,13 @@ private:
     uint16_t udp_recv_port{0};
     std::shared_future<void> future_;
     std::promise<void> exit_signal_;
-    std::thread read_thread_;
+    std::thread read_from_arduino_thread_;
+    std::thread read_from_lidar_thread_;
 
-    void send_to_zmq_topic(const char *topic, uint8_t *data, size_t size) const;
+    void send_to_zmq_topic(const char *topic, void *data, size_t size) const;
     void cmd_vel_callback(uint8_t *msg_cmd_vel) const;
-    void read_thread_func(const std::shared_future<void> &local_future);
+    void read_from_lidar_thread_func(const std::shared_future<void> &local_future);
+    void read_from_arduino_thread_func(const std::shared_future<void> &local_future);
     void dispatch_from_arduino(uint8_t *data_buffer, ssize_t length);
     int dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffer);
 

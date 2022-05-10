@@ -7,6 +7,7 @@
 #include <zmq.h>
 
 #include "bobik_driver.hpp"
+#include "xv11_laser.h"
 #include "protocol_types.h"
 #include "loguru.hpp"
 
@@ -28,6 +29,9 @@ constexpr int BUFFER_SIZE = 1024;
 constexpr int TTY_BAUDRATE = 500000;
 constexpr int READ_POLL_MS = 100;
 
+#define XV11_PORT_DEFAULT "/dev/ttyUSB0"           // Serial device driver name (sym link to real dev)
+#define XV11_BAUD_RATE_DEFAULT 115200              // Serial baud rate
+
 using namespace std::chrono_literals;
 
 bool stop = false;
@@ -48,7 +52,8 @@ BobikDriver::BobikDriver()
         throw std::runtime_error("Failed to initialize transport");
     }
 
-    read_thread_ = std::thread(&BobikDriver::read_thread_func, this, future_);
+    read_from_arduino_thread_ = std::thread(&BobikDriver::read_from_arduino_thread_func, this, future_);
+    read_from_lidar_thread_   = std::thread(&BobikDriver::read_from_lidar_thread_func, this, future_);
 
     // Setup 0MQ
     void *zmq_ctx = zmq_ctx_new();
@@ -77,12 +82,12 @@ BobikDriver::~BobikDriver()
 {
     LOG_F(INFO, "Bobik driver not yet finished"); // TODO this is not called. See log '[rclcpp]: signal_handler(signal_value=2)'
     stop = true;
-    read_thread_.join();
+    read_from_arduino_thread_.join();
     LOG_F(INFO, "Bobik driver finished"); // TODO this is not called. See log '[rclcpp]: signal_handler(signal_value=2)'
     transporter_->close();
 }
 
-void BobikDriver::send_to_zmq_topic(const char *topic, uint8_t *data, size_t size) const
+void BobikDriver::send_to_zmq_topic(const char *topic, void *data, size_t size) const
 {
     if (zmq_msg_init_data(&zmq_msg, data, size, NULL, NULL) == -1)
     {
@@ -117,9 +122,40 @@ void BobikDriver::cmd_vel_callback(uint8_t *msg_cmd_vel) const
 }
 
 /*
+ * Reads data from the serial port of XV11 lidar and publishes it as a ROS message.
+ */
+
+void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &local_future)
+{
+    std::future_status status;
+    #define DEG_VALUES 360
+    LaserScan_t ranges;
+    ranges.data_type = 0;
+    LaserScan_t intensities;
+    intensities.data_type = 1;
+    uint32_t time_increment;
+
+    // XV11 Lidar
+    boost::asio::io_service io;
+    xv_11_driver::XV11Laser laser(XV11_PORT_DEFAULT, XV11_BAUD_RATE_DEFAULT, io);
+
+    do
+    {
+        laser.poll(ranges.data, intensities.data, &time_increment);
+        ranges.time_increment = time_increment; //  /1e8
+        intensities.time_increment = time_increment; //  /1e8
+        send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, sizeof(LaserScan_t));  //  / 1000.0
+        send_to_zmq_topic(TOPIC_LIDAR_INTENSITIES, &intensities, sizeof(LaserScan_t));
+
+        status = local_future.wait_for(std::chrono::seconds(0));
+    } while (!stop && (status == std::future_status::timeout));
+    
+}
+
+/*
  * Reads data from the serial port and publishes it as a ROS message.
  */
-void BobikDriver::read_thread_func(const std::shared_future<void> &local_future)
+void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &local_future)
 {
     std::future_status status;
 

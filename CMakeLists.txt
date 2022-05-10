@@ -12,7 +12,7 @@ set(CMAKE_INSTALL_PREFIX /usr/local)
 #   add_compile_options(-Wall -Wextra -Wpedantic -std=c++14)
  endif()
 
-add_executable(bobik_driver src/bobik_driver.cpp src/transporter.cpp src/uart_transporter.cpp src/ring_buffer.cpp src/loguru.cpp)
+add_executable(bobik_driver src/bobik_driver.cpp src/transporter.cpp src/uart_transporter.cpp src/ring_buffer.cpp src/xv11_laser.cpp src/loguru.cpp)
 target_include_directories(bobik_driver PUBLIC /usr/local/include)
 target_link_libraries(bobik_driver /usr/local/lib/libzmq.so pthread ${CMAKE_DL_LIBS})
 
