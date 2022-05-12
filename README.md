@@ -22,7 +22,7 @@ export LD_LIBRARY_PATH=/usr/local/lib
 sudo add-apt-repository universe
 sudo add-apt-repository multiverse
 sudo apt update
-sudo apt-get install git curl htop mc aptitude libtool autoconf aptitude cmake zlib1g-dev libssl-dev
+sudo apt-get install git curl htop mc aptitude libtool autoconf aptitude cmake zlib1g-dev libssl-dev libboost-system1.54-dev
 update-rc.d -f apport remove
 update-rc.d -f cups remove
 update-rc.d -f cups-browsed remove
@@ -31,6 +31,14 @@ service --status-all
 sudo nmcli dev wifi connect <YOUR_SSID_HERE> password '<YOUR_KEY_HERE>'
 sudo nmcli dev
 sudo nmcli connection
+```
+
+Setp NTP servers in ```/etc/ntp.conf```:
+```
+server 0.cz.pool.ntp.org
+server 1.cz.pool.ntp.org
+server 2.cz.pool.ntp.org
+server 3.cz.pool.ntp.org
 ```
 
 > If wifi connection has slow and unstable ping, try to set ```wifi.powersave = 2``` to disable power management. (```iwconfig wlan0 power off```)
