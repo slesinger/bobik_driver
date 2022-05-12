@@ -130,9 +130,6 @@ void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &lo
     std::future_status status;
     #define DEG_VALUES 360
     LaserScan_t ranges;
-    ranges.data_type = 0;
-    LaserScan_t intensities;
-    intensities.data_type = 1;
     uint32_t time_increment;
 
     // XV11 Lidar
@@ -141,13 +138,9 @@ void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &lo
 
     do
     {
-        laser.poll(ranges.data, intensities.data, &time_increment);
+        laser.poll(ranges.data, &time_increment);
         ranges.time_increment = time_increment; //  /1e8
-        intensities.time_increment = time_increment; //  /1e8
-        LOG_F(INFO, "Received bytes from lidar----");
-//        send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, 16);  //  / 1000.0
         send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, sizeof(LaserScan_t));  //  / 1000.0
-        //send_to_zmq_topic(TOPIC_LIDAR_INTENSITIES, &intensities, sizeof(LaserScan_t));
 
         status = local_future.wait_for(std::chrono::seconds(0));
     } while (!stop && (status == std::future_status::timeout));
