@@ -29,7 +29,7 @@ constexpr int BUFFER_SIZE = 1024;
 constexpr int TTY_BAUDRATE = 500000;
 constexpr int READ_POLL_MS = 100;
 
-#define XV11_PORT_DEFAULT "/dev/ttyUSB0"           // Serial device driver name (sym link to real dev)
+#define XV11_PORT_DEFAULT "/dev/ttyUSB1"           // Lidar Serial device driver name (sym link to real dev)
 #define XV11_BAUD_RATE_DEFAULT 115200              // Serial baud rate
 
 using namespace std::chrono_literals;
@@ -45,7 +45,7 @@ zmq_msg_t zmq_msg;
 BobikDriver::BobikDriver()
 {
     future_ = exit_signal_.get_future();
-    device = "/dev/ttyUSB0"; // TODO discover
+    device = "/dev/ttyUSB0"; // Arduino serial
     transporter_ = std::make_unique<UARTTransporter>(device, TTY_BAUDRATE, READ_POLL_MS, BUFFER_SIZE);
     if (transporter_->init() < 0)
     {
@@ -144,12 +144,14 @@ void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &lo
         laser.poll(ranges.data, intensities.data, &time_increment);
         ranges.time_increment = time_increment; //  /1e8
         intensities.time_increment = time_increment; //  /1e8
+        LOG_F(INFO, "Received bytes from lidar----");
+//        send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, 16);  //  / 1000.0
         send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, sizeof(LaserScan_t));  //  / 1000.0
-        send_to_zmq_topic(TOPIC_LIDAR_INTENSITIES, &intensities, sizeof(LaserScan_t));
+        //send_to_zmq_topic(TOPIC_LIDAR_INTENSITIES, &intensities, sizeof(LaserScan_t));
 
         status = local_future.wait_for(std::chrono::seconds(0));
     } while (!stop && (status == std::future_status::timeout));
-    
+
 }
 
 /*
