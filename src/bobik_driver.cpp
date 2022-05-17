@@ -164,7 +164,7 @@ void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &
         // Process serial -> ROS 2 data
         if ((length = transporter_->read(data_buffer.get())) >= 0)
         {
-            LOG_F(INFO, "Received bytes ----%d ", length);
+            //LOG_F(INFO, "Received bytes ----%d ", length);
             char *bufo = (char *)(data_buffer.get());
             char bufs[1000];
             char *bufc = bufs;
