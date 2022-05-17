@@ -26,10 +26,10 @@
 #define MSG_START 0xEE
 
 constexpr int BUFFER_SIZE = 1024;
-constexpr int TTY_BAUDRATE = 500000;
+constexpr int TTY_BAUDRATE = 115200; //500000 is too much for voltage converter
 constexpr int READ_POLL_MS = 100;
 
-#define XV11_PORT_DEFAULT "/dev/ttyUSB1"           // Lidar Serial device driver name (sym link to real dev)
+#define XV11_PORT_DEFAULT "/dev/ttyUSB0"           // Lidar Serial device driver name (sym link to real dev)
 #define XV11_BAUD_RATE_DEFAULT 115200              // Serial baud rate
 
 using namespace std::chrono_literals;
@@ -45,7 +45,7 @@ zmq_msg_t zmq_msg;
 BobikDriver::BobikDriver()
 {
     future_ = exit_signal_.get_future();
-    device = "/dev/ttyUSB0"; // Arduino serial
+    device = "/dev/ttyTHS1"; // Arduino serial
     transporter_ = std::make_unique<UARTTransporter>(device, TTY_BAUDRATE, READ_POLL_MS, BUFFER_SIZE);
     if (transporter_->init() < 0)
     {
@@ -164,7 +164,7 @@ void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &
         // Process serial -> ROS 2 data
         if ((length = transporter_->read(data_buffer.get())) >= 0)
         {
-            // LOG_F(INFO, "Received bytes ----%d ", length);
+            LOG_F(INFO, "Received bytes ----%d ", length);
             char *bufo = (char *)(data_buffer.get());
             char bufs[1000];
             char *bufc = bufs;
