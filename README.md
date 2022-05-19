@@ -5,6 +5,17 @@ Robik Driver is suposed to be run on Bobik's Jetson TK1. There is no dependency 
 
 This Readme also dewscribes all remaining installation needed for Jetson.
 
+# Wire Connections
+
+## GPIO
+(https://elinux.org/Jetson/GPIO#GPIO_on_Jetson_TK1))
+```
+J3A1 02 GND (for ttyTHS1), to GND level shifter
+J3A1 03 1.8v (for ttyTHS1), to LV (low voltage) on level shifter
+J3A2 65 TX to Jetson UART1 RXD green towards level shifter (needs 1.8v), /dev/ttyTHS1  
+J3A2 68 RX to Jetson UART1 TXD white, needs level shifter to 1.8v)
+```
+
 # Build
 
 ## Prerequisites
