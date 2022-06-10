@@ -164,3 +164,12 @@ colcon build
 . ~/ros2_foxy/install/local_setup.bash
 ros2 run xv_11_driver xv_11_driver --ros-args -p port=/dev/ttyS0
 ```
+
+# REST API
+
+- read digital arduino pin / read status message from arduino (not implemented)
+- set digital arduino pin (not implemented)
+- last received message from arduino (not implemented)
+- set face mimic (not implemented)
+- poweroff (not implemented)
+
