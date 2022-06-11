@@ -5,6 +5,7 @@
 #include <vector>
 #include <csignal>
 #include <zmq.h>
+#include "zhelpers.h"
 
 #include "bobik_driver.hpp"
 #include "xv11_laser.h"
@@ -38,6 +39,7 @@ bool stop = false;
 int serial_port;
 struct termios tty;
 
+void *zmq_rep;
 void *radio;
 void *dish;
 zmq_msg_t zmq_msg;
@@ -52,13 +54,16 @@ BobikDriver::BobikDriver()
         throw std::runtime_error("Failed to initialize transport");
     }
 
-    read_from_arduino_thread_ = std::thread(&BobikDriver::read_from_arduino_thread_func, this, future_);
-    read_from_lidar_thread_   = std::thread(&BobikDriver::read_from_lidar_thread_func, this, future_);
-
     // Setup 0MQ
     void *zmq_ctx = zmq_ctx_new();
+
+    zmq_rep = zmq_socket(zmq_ctx, ZMQ_REP);
+    zmq_connect (zmq_rep, "tcp://0.0.0.0:7555");
+    
+
     radio = zmq_socket(zmq_ctx, ZMQ_RADIO);
     dish = zmq_socket(zmq_ctx, ZMQ_DISH);
+
     if (zmq_connect(radio, "udp://192.168.1.2:7655") != 0)
     {
         LOG_F(ERROR, "zmq_connect: %s", zmq_strerror(errno));
@@ -74,6 +79,10 @@ BobikDriver::BobikDriver()
         LOG_F(ERROR, "Could not subscribe to: %s", TOPIC_CMD_VEL);
         return;
     }
+
+    read_from_arduino_thread_ = std::thread(&BobikDriver::read_from_arduino_thread_func, this, future_);
+    read_from_lidar_thread_   = std::thread(&BobikDriver::read_from_lidar_thread_func, this, future_);
+    serve_reqresp_thread_     = std::thread(&BobikDriver::serve_reqresp_thread_func, this, future_);
 
     LOG_F(INFO, "Bobik driver initialized");
 }
@@ -145,6 +154,20 @@ void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &lo
         status = local_future.wait_for(std::chrono::seconds(0));
     } while (!stop && (status == std::future_status::timeout));
 
+}
+
+/*
+ * Receive requests from 0MQ, dispach them and send synchronous response back to bobik_robot
+ */
+void BobikDriver::serve_reqresp_thread_func(const std::shared_future<void> &local_future)
+{
+    std::future_status status;
+    do {
+        char *req_str = s_recv(zmq_rep);
+        printf ("Received request: [%s]\n", req_str);
+        int size = zmq_send(zmq_rep, "World", strlen ("World"), 0);
+        free (req_str);
+    } while (!stop && (status == std::future_status::timeout));
 }
 
 /*
