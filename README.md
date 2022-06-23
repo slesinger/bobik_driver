@@ -151,6 +151,7 @@ Copy ```startup/bobik.conf``` to ```/etc/init```.
 ```
 sudo initctl reload-configuration
 sudo service bobik start
+sudo service ffplay start
 ```
 
 ## Install XV11 Lidar Driver
