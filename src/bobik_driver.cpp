@@ -187,7 +187,7 @@ void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &
         // Process serial -> ROS 2 data
         if ((length = transporter_->read(data_buffer.get())) >= 0)
         {
-            //LOG_F(INFO, "Received bytes ----%d ", length);
+            // LOG_F(INFO, "Received bytes ----%d ", length);
             char *bufo = (char *)(data_buffer.get());
             char bufs[1000];
             char *bufc = bufs;
@@ -226,6 +226,7 @@ void BobikDriver::dispatch_from_arduino(uint8_t *data_buffer, ssize_t length)
 // Distribute messages from arduino to the correct handler based on message type
 int BobikDriver::dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffer)
 {
+    // LOG_F(INFO, "msg_type: '%d'", msg_type);
     if (msg_type == LOOP_TIMESTAMP)
     {
         MsgTimestamp_t *msg = (struct MsgTimestamp_t *)data_buffer;
@@ -254,6 +255,13 @@ int BobikDriver::dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffe
     {
         send_to_zmq_topic(TOPIC_CASTER_RAW, data_buffer, sizeof(MsgCasterJointStates_t));
         return sizeof(MsgCasterJointStates_t);
+    }
+    if (msg_type == IMU_9DOF)
+    {
+        MsgIMU9DOF_t *msg = (struct MsgIMU9DOF_t *)data_buffer;  //debug
+        LOG_F(INFO, "IMU: %d %d %d", msg->ax, msg->ay, msg->az);    //debug
+        send_to_zmq_topic(TOPIC_IMU9DOF, data_buffer, sizeof(MsgIMU9DOF_t));
+        return sizeof(MsgIMU9DOF_t);
     }
     LOG_F(ERROR, "Unknown message type %x", msg_type);
     return 0;
