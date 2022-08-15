@@ -95,6 +95,39 @@ cd
 git clone https://github.com/slesinger/bobik_arduino.git
 ```
 
+## Kinect
+
+#### Prerequisite cmake 3.12.4
+
+Based on https://www.claudiokuenzler.com/blog/796/install-upgrade-cmake-3.12.1-ubuntu-14.04-trusty-alternatives
+
+```
+wget https://cmake.org/files/v3.12/cmake-3.12.4.tar.gz
+tar -xzvf cmake-3.12.4.tar.gz
+cd cmake-3.12.4
+./configure
+make
+sudo make install
+export CMAKE_ROOT=/usr/local/share/cmake-3.12
+sudo update-alternatives --install /usr/bin/cmake cmake /usr/local/bin/cmake 1 --force
+```
+
+### Libfreenect
+
+Based on https://www.kdab.com/setting-up-kinect-for-programming-in-linux-part-1/
+
+```
+git clone https://github.com/OpenKinect/libfreenect
+sudo apt-get install freeglut3-dev libusb-1.0-0-dev
+cd libfreenect
+mkdir build
+cmake -L
+cmake ..
+make
+sudo make install
+sudo ldconfig /usr/local/lib/
+```
+
 ### Install PlatformIO
 ```bash
 sudo apt-get install software-properties-common
