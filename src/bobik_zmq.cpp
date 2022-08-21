@@ -94,41 +94,24 @@ void BobikDriver::serve_reqresp_thread_func(const std::shared_future<void> &loca
  */
 
 // Read data from ZMQ
-void BobikZmq::run()
+void BobikZmq::receive(const char *topic, void *data, int *data_size) const
 {
-    bool stop = true;
-    do
+    int bytesReceived;
+    zmq_msg_t receiveMessage;
+
+    zmq_msg_init(&receiveMessage);
+    bytesReceived = zmq_msg_recv(&receiveMessage, dish, 0);
+    LOG_F(INFO, "Received bytes: '%d'", bytesReceived);
+    if (bytesReceived == -1)
     {
-#ifdef ENABLE_ARDUINO
-        int bytesReceived;
-        zmq_msg_t receiveMessage;
-
-        zmq_msg_init(&receiveMessage);
-        bytesReceived = zmq_msg_recv(&receiveMessage, dish, 0);
-        LOG_F(INFO, "Received bytes: '%d'", bytesReceived);
-        if (bytesReceived == -1)
-        {
-            LOG_F(ERROR, "Failed to receive message from zmq.");
-        }
-        else
-        {
-            if (strcmp(zmq_msg_group(&receiveMessage), TOPIC_CMD_VEL) == 0)
-            {
-                void *data_buffer = zmq_msg_data(&receiveMessage);
-                char *h = (char *)&receiveMessage;
-                LOG_F(INFO, "CMD_VEL from ros2 topic: %s, data: %02X:%02X:%02X:%02X:%02X:%02X, size: %d\n", zmq_msg_group(&receiveMessage), h[0],h[1],h[2],h[3],h[4],h[5], bytesReceived);
-                cmd_vel_callback((uint8_t *)data_buffer);
-            }
-            else
-            {
-                LOG_F(INFO, "from ros2 topic: %s, data: %s, size: %d\n", zmq_msg_group(&receiveMessage), (char *)zmq_msg_data(&receiveMessage), bytesReceived);
-            }
-
-        }
-
+        LOG_F(ERROR, "Failed to receive message from zmq.");
+    }
+    else
+    {
+        topic = zmq_msg_group(&receiveMessage);
+        data = zmq_msg_data(&receiveMessage);
+        *data_size = bytesReceived;
         zmq_msg_close(&receiveMessage);
-#endif
-    } while (!stop);
-    LOG_F(INFO, "Run loop stopped");
+    }
 }
 

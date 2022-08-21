@@ -14,18 +14,18 @@ BobikZmq *bzmq;
 
 void BobikKinect::depth_cb(freenect_device* dev, void* data, uint32_t timestamp)
 {
-    printf("Received depth frame at %d\n", timestamp);
+//    printf("Received depth frame at %d\n", timestamp);
 //    uint16_t *depth = (uint16_t*)data;
 
     for (int line = 0; line < 480; line++)
     {
-        bzmq->send_to_zmq_topic(TOPIC_KINECT_DEPTH, data + line*640*sizeof(uint16_t), 640 * sizeof(uint16_t));
+  //      bzmq->send_to_zmq_topic(TOPIC_KINECT_DEPTH, data + line*640*sizeof(uint16_t), 640 * sizeof(uint16_t));
     }
 }
 
 void video_cb(freenect_device* dev, void* data, uint32_t timestamp)
 {
-    printf("Received video frame at %d\n", timestamp);
+//    printf("Received video frame at %d\n", timestamp);
 }
 
 

@@ -1,15 +1,12 @@
-//#define ENABLE_LIDAR
-//#define ENABLE_ARDUINO
-
 #include <future>
 #include <chrono>
 #include <memory>
 #include <vector>
+#include <csignal>
 #include "loguru.hpp"
 #include "bobik_driver.hpp"
 #include "bobik_zmq.hpp"
 #include "bobik_kinect.hpp"
-#include <csignal>
 
 #include "xv11_laser.h"
 #include "protocol_types.h"
@@ -48,23 +45,17 @@ BobikDriver::BobikDriver()
     future_ = exit_signal_.get_future();
 
     // Setup Arduino serial
-#ifdef ENABLE_ARDUINO
-  device = "/dev/ttyTHS1"; // Arduino serial
+    device = "/dev/ttyTHS1"; // Arduino serial
     transporter_ = std::make_unique<UARTTransporter>(device, TTY_BAUDRATE, READ_POLL_MS, BUFFER_SIZE);
     if (transporter_->init() < 0)
     {
         throw std::runtime_error("Failed to initialize transport");
     }
-#endif
 
     // Start threads
-#ifdef ENABLE_ARDUINO
     read_from_arduino_thread_ = std::thread(&BobikDriver::read_from_arduino_thread_func, this, future_);
-#endif
-#ifdef ENABLE_LIDAR
     read_from_lidar_thread_   = std::thread(&BobikDriver::read_from_lidar_thread_func, this, future_);
-#endif
-    read_from_kinect_thread_   = std::thread(&BobikDriver::read_from_kinect_thread_func, this, future_);
+//    read_from_kinect_thread_   = std::thread(&BobikDriver::read_from_kinect_thread_func, this, future_);
 //    serve_reqresp_thread_     = std::thread(&BobikDriver::serve_reqresp_thread_func, this, future_);
 
     LOG_F(INFO, "Bobik driver initialized");
@@ -75,10 +66,8 @@ BobikDriver::~BobikDriver()
     LOG_F(INFO, "Bobik driver shutting down");
     stop = true;  // TODO wait for thread join
     this->bobik_kinect.shutdown();
-#ifdef ENABLE_ARDUINO
     read_from_arduino_thread_.join();
     transporter_->close();
-#endif
     LOG_F(INFO, "Bobik driver finished"); // TODO this is not called. See log '[rclcpp]: signal_handler(signal_value=2)'
 }
 
@@ -98,7 +87,6 @@ void BobikDriver::cmd_vel_callback(uint8_t *msg_cmd_vel) const
  * Reads data from the serial port of XV11 lidar and publishes it as a ROS message.
  */
 
-#ifdef ENABLE_LIDAR
 void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &local_future)
 {
     std::future_status status;
@@ -114,20 +102,18 @@ void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &lo
     {
         laser.poll(ranges.data, &time_increment);
         ranges.time_increment = time_increment; //  /1e8
-        send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, sizeof(LaserScan_t));  //  / 1000.0
+        bobik_zmq.send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, sizeof(LaserScan_t));  //  / 1000.0
 
         status = local_future.wait_for(std::chrono::seconds(0));
     } while (!stop && (status == std::future_status::timeout));
 
 }
-#endif
 
 void BobikDriver::read_from_kinect_thread_func(const std::shared_future<void> &local_future)
 {
     std::future_status status;
     do
     {
-//        LOG_F(WARNING, "Volan");
         if (int rc = this->bobik_kinect.run() < 0)
         {
             LOG_F(WARNING, "Kinect USB events error %d", rc);
@@ -154,22 +140,21 @@ void BobikDriver::serve_reqresp_thread_func(const std::shared_future<void> &loca
 /*
  * Reads data from the serial port and publishes it as a ROS message.
  */
-#ifdef ENABLE_ARDUINO
 void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &local_future)
 {
     std::future_status status;
-
     // We use a unique_ptr here both to make this a heap allocation and to quiet
     // non-owning pointer warnings from clang-tidy
     std::unique_ptr<uint8_t[]> data_buffer(new uint8_t[BUFFER_SIZE]);
     ssize_t length = 0;
+    LOG_F(INFO, "Arduino thread started");
 
     do
     {
         // Process serial -> ROS 2 data
         if ((length = transporter_->read(data_buffer.get())) >= 0)
         {
-            // LOG_F(INFO, "Received bytes ----%d ", length);
+            LOG_F(INFO, "Received bytes ----%d ", length);
             char *bufo = (char *)(data_buffer.get());
             char bufs[1000];
             char *bufc = bufs;
@@ -179,7 +164,7 @@ void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &
                 bufc += 3;
             }
             *bufc = 0;
-            // LOG_F(INFO, "Loop read thread--- %d| %s", length, bufs);
+            LOG_F(INFO, "Loop read thread--- %d| %s", length, bufs);
             dispatch_from_arduino(data_buffer.get(), length);
         }
         status = local_future.wait_for(std::chrono::seconds(0));
@@ -208,7 +193,7 @@ void BobikDriver::dispatch_from_arduino(uint8_t *data_buffer, ssize_t length)
 // Distribute messages from arduino to the correct handler based on message type
 int BobikDriver::dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffer)
 {
-    // LOG_F(INFO, "msg_type: '%d'", msg_type);
+    LOG_F(INFO, "msg_type: '%d'", msg_type);
     if (msg_type == LOOP_TIMESTAMP)
     {
         MsgTimestamp_t *msg = (struct MsgTimestamp_t *)data_buffer;
@@ -235,55 +220,37 @@ int BobikDriver::dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffe
     }
     if (msg_type == CASTER_JOINT_STATES)
     {
-        send_to_zmq_topic(TOPIC_CASTER_RAW, data_buffer, sizeof(MsgCasterJointStates_t));
+        bobik_zmq.send_to_zmq_topic(TOPIC_CASTER_RAW, data_buffer, sizeof(MsgCasterJointStates_t));
         return sizeof(MsgCasterJointStates_t);
     }
     if (msg_type == IMU_9DOF)
     {
 //        MsgIMU9DOF_t *msg = (struct MsgIMU9DOF_t *)data_buffer;  // debug
 //        LOG_F(INFO, "IMU: %d %d %d", msg->ax, msg->ay, msg->az); // debug
-        send_to_zmq_topic(TOPIC_IMU9DOF, data_buffer, sizeof(MsgIMU9DOF_t));
+        bobik_zmq.send_to_zmq_topic(TOPIC_IMU9DOF, data_buffer, sizeof(MsgIMU9DOF_t));
         return sizeof(MsgIMU9DOF_t);
     }
     LOG_F(ERROR, "Unknown message type %x", msg_type);
     return 0;
 }
-#endif
 
 // Read data from ZMQ
 void BobikDriver::run()
 {
     do
     {
-#ifdef ENABLE_ARDUINO
-        int bytesReceived;
-        zmq_msg_t receiveMessage;
-
-        zmq_msg_init(&receiveMessage);
-        bytesReceived = zmq_msg_recv(&receiveMessage, dish, 0);
-        LOG_F(INFO, "Received bytes: '%d'", bytesReceived);
-        if (bytesReceived == -1)
+        const char *topic = NULL;
+        void *data = NULL;
+        int data_size = 0;
+        bobik_zmq.receive(topic, data, &data_size);
+        if (strcmp(topic, TOPIC_CMD_VEL) == 0)
         {
-            LOG_F(ERROR, "Failed to receive message from zmq.");
+            cmd_vel_callback((uint8_t *)data);
         }
         else
         {
-            if (strcmp(zmq_msg_group(&receiveMessage), TOPIC_CMD_VEL) == 0)
-            {
-                void *data_buffer = zmq_msg_data(&receiveMessage);
-                char *h = (char *)&receiveMessage;
-                LOG_F(INFO, "CMD_VEL from ros2 topic: %s, data: %02X:%02X:%02X:%02X:%02X:%02X, size: %d\n", zmq_msg_group(&receiveMessage), h[0],h[1],h[2],h[3],h[4],h[5], bytesReceived);
-                cmd_vel_callback((uint8_t *)data_buffer);
-            }
-            else
-            {
-                LOG_F(INFO, "from ros2 topic: %s, data: %s, size: %d\n", zmq_msg_group(&receiveMessage), (char *)zmq_msg_data(&receiveMessage), bytesReceived);
-            }
-
+            LOG_F(INFO, "No ZMQ topic matched for topic: %s, data: %s, size: %d\n", topic, (char *)data, data_size);
         }
-
-        zmq_msg_close(&receiveMessage);
-#endif
     } while (!stop);
     LOG_F(INFO, "Run loop stopped");
 }
@@ -291,7 +258,9 @@ void BobikDriver::run()
 void sigint_handler(int signum)
 {
     LOG_F(INFO, "Received SIGnal %d. Exiting 'run' loop.\n", signum);
+
     stop = true;
+    exit (EXIT_FAILURE); // TODO temprary
 }
 
 /**
@@ -306,7 +275,7 @@ int main(int argc, char *argv[])
     loguru::init(argc, argv);
     std::signal(SIGINT, sigint_handler); // works but needs to unblock by receiving a message from ros2, see https://man.archlinux.org/man/zmq_setsockopt.3.en#ZMQ_CONNECT_TIMEOUT:_Set_connect()_timeout
     BobikDriver bobik_driver;
-    bobik_driver.bobik_kinect.init(&(bobik_driver.bobik_zmq));
+//    bobik_driver.bobik_kinect.init(&(bobik_driver.bobik_zmq));
     bobik_driver.run();
     LOG_F(INFO, "Bobik_driver exiting");
     return 0;
