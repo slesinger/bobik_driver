@@ -55,7 +55,7 @@ BobikDriver::BobikDriver()
     // Start threads
     read_from_arduino_thread_ = std::thread(&BobikDriver::read_from_arduino_thread_func, this, future_);
     read_from_lidar_thread_   = std::thread(&BobikDriver::read_from_lidar_thread_func, this, future_);
-//    read_from_kinect_thread_   = std::thread(&BobikDriver::read_from_kinect_thread_func, this, future_);
+    read_from_kinect_thread_   = std::thread(&BobikDriver::read_from_kinect_thread_func, this, future_);
 //    serve_reqresp_thread_     = std::thread(&BobikDriver::serve_reqresp_thread_func, this, future_);
 
     LOG_F(INFO, "Bobik driver initialized");
@@ -154,7 +154,7 @@ void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &
         // Process serial -> ROS 2 data
         if ((length = transporter_->read(data_buffer.get())) >= 0)
         {
-            LOG_F(INFO, "Received bytes ----%d ", length);
+            // LOG_F(INFO, "Received bytes ----%d ", length);
             char *bufo = (char *)(data_buffer.get());
             char bufs[1000];
             char *bufc = bufs;
@@ -164,7 +164,7 @@ void BobikDriver::read_from_arduino_thread_func(const std::shared_future<void> &
                 bufc += 3;
             }
             *bufc = 0;
-            LOG_F(INFO, "Loop read thread--- %d| %s", length, bufs);
+            // LOG_F(INFO, "Loop read thread--- %d| %s", length, bufs);
             dispatch_from_arduino(data_buffer.get(), length);
         }
         status = local_future.wait_for(std::chrono::seconds(0));
@@ -193,7 +193,7 @@ void BobikDriver::dispatch_from_arduino(uint8_t *data_buffer, ssize_t length)
 // Distribute messages from arduino to the correct handler based on message type
 int BobikDriver::dispatch_msg_from_arduino(uint8_t msg_type, uint8_t *data_buffer)
 {
-    LOG_F(INFO, "msg_type: '%d'", msg_type);
+    // LOG_F(INFO, "msg_type: '%d'", msg_type);
     if (msg_type == LOOP_TIMESTAMP)
     {
         MsgTimestamp_t *msg = (struct MsgTimestamp_t *)data_buffer;
@@ -275,7 +275,7 @@ int main(int argc, char *argv[])
     loguru::init(argc, argv);
     std::signal(SIGINT, sigint_handler); // works but needs to unblock by receiving a message from ros2, see https://man.archlinux.org/man/zmq_setsockopt.3.en#ZMQ_CONNECT_TIMEOUT:_Set_connect()_timeout
     BobikDriver bobik_driver;
-//    bobik_driver.bobik_kinect.init(&(bobik_driver.bobik_zmq));
+    bobik_driver.bobik_kinect.init(&(bobik_driver.bobik_zmq));
     bobik_driver.run();
     LOG_F(INFO, "Bobik_driver exiting");
     return 0;

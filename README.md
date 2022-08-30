@@ -5,6 +5,8 @@ Robik Driver is suposed to be run on Bobik's Jetson TK1. There is no dependency 
 
 This Readme also dewscribes all remaining installation needed for Jetson.
 
+> Set router 5GHz wifi to channel bandwidth to 80Mhz or higher explicitly.
+
 # Wire Connections
 
 ## GPIO

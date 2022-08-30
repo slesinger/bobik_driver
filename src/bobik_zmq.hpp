@@ -10,6 +10,7 @@ public:
     ~BobikZmq();
     void run();
     void send_to_zmq_topic(const char *topic, void *data, size_t size) const;
+    void send_to_zmq_topic_kinect(const char *topic, void *data, size_t size) const;
     void receive(const char *topic, void *data, int *data_size) const;
 
 private:

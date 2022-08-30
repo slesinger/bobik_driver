@@ -10,16 +10,23 @@
 freenect_device* fn_dev;
 freenect_context* fn_ctx;
 
+#define WIDTH 640
+#define HEIGHT 480
+
 BobikZmq *bzmq;
+uint16_t depth_line_buff[WIDTH+1];
 
 void BobikKinect::depth_cb(freenect_device* dev, void* data, uint32_t timestamp)
 {
 //    printf("Received depth frame at %d\n", timestamp);
 //    uint16_t *depth = (uint16_t*)data;
 
-    for (int line = 0; line < 480; line++)
+    for (uint16_t line = 0; line < HEIGHT; line++)
     {
-  //      bzmq->send_to_zmq_topic(TOPIC_KINECT_DEPTH, data + line*640*sizeof(uint16_t), 640 * sizeof(uint16_t));
+        depth_line_buff[0] = line; //first message word is line id
+        memcpy((void *)(&depth_line_buff[1]), data + line*WIDTH*sizeof(uint16_t), WIDTH * sizeof(uint16_t));
+        bzmq->send_to_zmq_topic_kinect(TOPIC_KINECT_DEPTH, depth_line_buff, sizeof(depth_line_buff));
+////        bzmq->send_to_zmq_topic_kinect(TOPIC_KINECT_DEPTH, data + line*WIDTH*sizeof(uint16_t), WIDTH * sizeof(uint16_t));
     }
 }
 
@@ -88,7 +95,6 @@ int BobikKinect::init(BobikZmq *zmq)
         freenect_set_depth_callback(fn_dev, BobikKinect::depth_cb);
         freenect_set_video_callback(fn_dev, video_cb);
 
-        LOG_F(INFO, "Starting Kinect streams");
         // Start depth and video.
         ret = freenect_start_depth(fn_dev);
         if (ret < 0)
