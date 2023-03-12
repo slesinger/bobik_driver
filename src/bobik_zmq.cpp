@@ -13,6 +13,7 @@
 void *zmq_rep;
 void *radio;
 void *radio_kinect;
+void *radio_kinect_rgb;
 void *dish;
 
 BobikZmq::BobikZmq()
@@ -26,6 +27,7 @@ BobikZmq::BobikZmq()
 
     radio = zmq_socket(zmq_ctx, ZMQ_RADIO);
     radio_kinect = zmq_socket(zmq_ctx, ZMQ_RADIO);
+    radio_kinect_rgb = zmq_socket(zmq_ctx, ZMQ_RADIO);
     dish = zmq_socket(zmq_ctx, ZMQ_DISH);
 
     if (zmq_connect(radio, "udp://192.168.1.2:7655") != 0)
@@ -36,6 +38,11 @@ BobikZmq::BobikZmq()
     if (zmq_connect(radio_kinect, "udp://192.168.1.2:7656") != 0)
     {
         LOG_F(ERROR, "zmq_connect kinect: %s", zmq_strerror(errno));
+        return;
+    }
+    if (zmq_connect(radio_kinect_rgb, "tcp://192.168.1.2:7657") != 0)
+    {
+        LOG_F(ERROR, "zmq_connect kinect rgb: %s", zmq_strerror(errno));
         return;
     }
 
@@ -82,6 +89,7 @@ void BobikZmq::send_to_zmq_topic(const char *topic, void *data, size_t size) con
         return;
     }
 }
+
 void BobikZmq::send_to_zmq_topic_kinect(const char *topic, void *data, size_t size) const
 {
     zmq_msg_t zmq_msg_kinect;
@@ -96,6 +104,31 @@ void BobikZmq::send_to_zmq_topic_kinect(const char *topic, void *data, size_t si
         return;
     }
     if (zmq_msg_send(&zmq_msg_kinect, radio_kinect, 0) == -1)
+    {
+        LOG_F(ERROR, "Failed to send message for topic %s. %s", topic, zmq_strerror(errno));
+        return;
+    }
+    if (zmq_msg_close(&zmq_msg_kinect) == -1)
+    {
+        LOG_F(ERROR, "Failed to close message for topic %s. %s", topic, zmq_strerror(errno));
+        return;
+    }
+}
+
+void BobikZmq::send_to_zmq_topic_kinect_rgb(const char *topic, void *data, size_t size) const
+{
+    zmq_msg_t zmq_msg_kinect;
+    if (zmq_msg_init_data(&zmq_msg_kinect, data, size, NULL, NULL) == -1)
+    {
+        LOG_F(ERROR, "Failed to init message for topic %s. %s", topic, zmq_strerror(errno));
+        return;
+    }
+    if (zmq_msg_set_group(&zmq_msg_kinect, topic) == -1)
+    {
+        LOG_F(ERROR, "Failed to set group for topic %s. %s", topic, zmq_strerror(errno));
+        return;
+    }
+    if (zmq_msg_send(&zmq_msg_kinect, radio_kinect_rgb, 0) == -1)
     {
         LOG_F(ERROR, "Failed to send message for topic %s. %s", topic, zmq_strerror(errno));
         return;

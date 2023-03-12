@@ -55,7 +55,8 @@ BobikDriver::BobikDriver()
     // Start threads
     read_from_arduino_thread_ = std::thread(&BobikDriver::read_from_arduino_thread_func, this, future_);
     read_from_lidar_thread_   = std::thread(&BobikDriver::read_from_lidar_thread_func, this, future_);
-    read_from_kinect_thread_   = std::thread(&BobikDriver::read_from_kinect_thread_func, this, future_);
+//    read_from_kinect_thread_   = std::thread(&BobikDriver::read_from_kinect_thread_func, this, future_);
+    read_from_kinectsendrgb_thread_   = std::thread(&BobikDriver::read_from_kinectsendrgb_thread_func, this, future_);
 //    serve_reqresp_thread_     = std::thread(&BobikDriver::serve_reqresp_thread_func, this, future_);
 
     LOG_F(INFO, "Bobik driver initialized");
@@ -119,6 +120,18 @@ void BobikDriver::read_from_kinect_thread_func(const std::shared_future<void> &l
             LOG_F(WARNING, "Kinect USB events error %d", rc);
         }
         status = local_future.wait_for(std::chrono::seconds(0));
+    } while (!stop && (status == std::future_status::timeout));
+}
+void BobikDriver::read_from_kinectsendrgb_thread_func(const std::shared_future<void> &local_future)
+{
+    std::future_status status;
+    do
+    {
+        if (this->bobik_kinect.send_rgb() == 0)
+        {
+            std::this_thread::sleep_for(5ms);
+        }
+        status = local_future.wait_for(std::chrono::milliseconds(0));
     } while (!stop && (status == std::future_status::timeout));
 }
 
