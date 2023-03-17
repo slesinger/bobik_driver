@@ -1,8 +1,10 @@
 #include <future>
+#include <error.h>
 #include <chrono>
 #include <memory>
 #include <vector>
 #include <csignal>
+#include <time.h>
 #include "loguru.hpp"
 #include "bobik_driver.hpp"
 #include "bobik_zmq.hpp"
@@ -38,6 +40,19 @@ using namespace std::chrono_literals;
 bool stop = false;
 int serial_port;
 struct termios tty;
+
+void timespec_diff(struct timespec *start, struct timespec *stop, struct timespec *result)
+{
+    if ((stop->tv_nsec - start->tv_nsec) < 0) {
+        result->tv_sec = stop->tv_sec - start->tv_sec - 1;
+        result->tv_nsec = stop->tv_nsec - start->tv_nsec + 1000000000;
+    } else {
+        result->tv_sec = stop->tv_sec - start->tv_sec;
+        result->tv_nsec = stop->tv_nsec - start->tv_nsec;
+    }
+
+    return;
+}
 
 BobikDriver::BobikDriver()
 {
@@ -94,6 +109,10 @@ void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &lo
     #define DEG_VALUES 360
     LaserScan_t ranges;
     uint32_t time_increment;
+    struct timespec tms;
+    struct timespec header_tms;
+    struct timespec scan_time_tms;
+    scan_time_tms.tv_sec = 0;
 
     // XV11 Lidar
     boost::asio::io_service io;
@@ -102,7 +121,19 @@ void BobikDriver::read_from_lidar_thread_func(const std::shared_future<void> &lo
     do
     {
         laser.poll(ranges.data, &time_increment);
-        ranges.time_increment = time_increment; //  /1e8
+        ranges.time_increment = time_increment;
+        if (clock_gettime(CLOCK_REALTIME,&tms) == 0) {
+          float scan_time = 1 / ((float)time_increment / 64 / 60); // [sec]  ~0.2sec
+          scan_time_tms.tv_nsec = scan_time * 1e9; // sec to nanosec
+          timespec_diff(&scan_time_tms, &tms, &header_tms);
+          ranges.header.sec = header_tms.tv_sec;
+          ranges.header.nanosec = header_tms.tv_nsec;
+        }
+        else {
+          perror("error clock_gettime\n");
+          ranges.header.sec = -1;
+          ranges.header.nanosec = 0;
+        }
         bobik_zmq.send_to_zmq_topic(TOPIC_LIDAR_RANGES, &ranges, sizeof(LaserScan_t));  //  / 1000.0
 
         status = local_future.wait_for(std::chrono::seconds(0));
@@ -252,8 +283,8 @@ void BobikDriver::run()
 {
     do
     {
-        const char *topic = NULL;
-        void *data = NULL;
+        char *topic = (char*) malloc(50 * sizeof(char));
+        void *data = (void*) malloc(1024 * sizeof(char));
         int data_size = 0;
         bobik_zmq.receive(topic, data, &data_size);
         if (strcmp(topic, TOPIC_CMD_VEL) == 0)
@@ -265,7 +296,7 @@ void BobikDriver::run()
             LOG_F(INFO, "No ZMQ topic matched for topic: %s, data: %s, size: %d\n", topic, (char *)data, data_size);
         }
     } while (!stop);
-    LOG_F(INFO, "Run loop stopped");
+    LOG_F(INFO, "Exited driver loop");
 }
 
 void sigint_handler(int signum)

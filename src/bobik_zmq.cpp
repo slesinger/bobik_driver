@@ -154,27 +154,26 @@ void BobikDriver::serve_reqresp_thread_func(const std::shared_future<void> &loca
     } while (!stop && (status == std::future_status::timeout));
 }
 */
-/*
- * Reads data from the serial port and publishes it as a ROS message.
- */
 
 // Read data from ZMQ
-void BobikZmq::receive(const char *topic, void *data, int *data_size) const
+void BobikZmq::receive(char *topic, void *data, int *data_size) const
 {
     int bytesReceived;
     zmq_msg_t receiveMessage;
 
     zmq_msg_init(&receiveMessage);
     bytesReceived = zmq_msg_recv(&receiveMessage, dish, 0);
-    LOG_F(INFO, "Received bytes: '%d'", bytesReceived);
+    LOG_F(INFO, "ZMQ Received bytes: '%d'", bytesReceived);
     if (bytesReceived == -1)
     {
         LOG_F(ERROR, "Failed to receive message from zmq.");
     }
     else
     {
-        topic = zmq_msg_group(&receiveMessage);
-        data = zmq_msg_data(&receiveMessage);
+        const char* topic_local = zmq_msg_group(&receiveMessage);
+        strcpy(topic, topic_local);
+        void* data_local = zmq_msg_data(&receiveMessage);
+        memcpy(data, data_local, bytesReceived);
         *data_size = bytesReceived;
         zmq_msg_close(&receiveMessage);
     }
